@@ -89,6 +89,7 @@
 
 			<td>
 				<form method="get" action="operation">
+				<input type="hidden" name="flow_id" id="flow_id" value="${ flow_id}"></input>
 					<input type="submit" name="cancel" id="cancel" value="cancel"></input>
 					&nbsp;&nbsp;&nbsp;&nbsp;<input type="submit" name="delete"
 						id="delete" value="delete"></input> <input type="hidden"

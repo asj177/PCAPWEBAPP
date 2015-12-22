@@ -107,10 +107,18 @@ String ip_b;
 	String flow_id;
 	String ip_a;
 	String mask_a;
+	String mask_b;
+	public String getMask_b() {
+		return mask_b;
+	}
+	public void setMask_b(String mask_b) {
+		this.mask_b = mask_b;
+	}
 	String service_id;
 	String expression_id;
 	String mining_output_location;
 	String pcap_out_file_fd;
+	
 	
 	
 }

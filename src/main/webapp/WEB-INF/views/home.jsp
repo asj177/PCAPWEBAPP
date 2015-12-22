@@ -7,7 +7,7 @@
 <head>
 <title>PCAP</title>
 <script type="text/javascript"
-	src="http://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
+	src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.2/jquery.min.js"></script>
 <script type="text/javascript"
 	src="${pageContext.request.contextPath}/resources/js/pcap.js"></script>
 
@@ -37,6 +37,58 @@ function callOnClick(index,ip){
 }
 
 
+function callNext(){
+	
+	$("#navigate").attr("value","next")
+	$.ajax({
+		url:'/pcap',
+		type:'GET',
+		success:function(data){
+			$("#main").html(data)
+		}
+		
+		
+		
+	}) 
+}
+
+
+function callPrev(){
+	
+	$("#navigate").attr("value","prev")
+	$.ajax({
+		url:'/pcap',
+		type:'GET',
+		success:function(data){
+			$("#main").html(data)
+		}
+		
+		
+		
+	}) 
+	
+}
+function applyFilter(){
+	//location.reload();
+	var toTimestamp=$("#toTimestamp").val();
+	var fromTimestamp=$("#fromTimestamp").val();
+	$.ajax({
+	url:'/pcap',
+	type:'GET',
+	data:{
+		'fromTimestamp':fromTimestamp,
+		'toTimestamp':toTimestamp
+	},
+	success:function(data){
+		$("#main").html(data)
+	}
+	
+	
+	
+}) 
+}
+
+
 
 
 </script>
@@ -47,9 +99,18 @@ function callOnClick(index,ip){
 	<div id="main">
 
 
-
+	
 		<table border="1">
 <form name="pcap_form" id="pcap_form" method="get" action="pcap">
+<input type="hidden" value="next" id="navigate" name="navigate"/>
+<input type="hidden" value="${to}" id="to"/>
+ <input type="hidden" value="${from}" id="from"/>
+<b>Timestamp filters</b>
+<br/>
+From &nbsp; <input type="text" id="fromTimestamp" name="fromTimestamp"></input>  &nbsp;  &nbsp; To &nbsp;<input type="text" id="toTimestamp" name="toTimestamp"></input>
+<br/>
+<input type="button" value="search" id="search" name="search" onclick="applyFilter()"></input>
+				<b>Total Number of records fetched :${records}</b>
 				<c:forEach var="esData" items="${es_data}" varStatus="indexClicked">
 
 
@@ -70,7 +131,7 @@ function callOnClick(index,ip){
 				<b>Service_group_name</b>:${esData.service_group_name}</br>
 			<b>uri</b>:10.0.0.189</br>
 			<input type="hidden" id="ip" name="ip"
-							value="10.0.0.189"></input>
+							value="10.0.0.191"></input>
 				<b>Web Host</b>:${esData.web_host}</br>
 			<b>User Agent</b>:${esData.user_agent}</br>
 				<b>Packets</b>:${esData.pkts}</br>
@@ -82,12 +143,16 @@ function callOnClick(index,ip){
 				<b>productivity_index</b>:${productivity_index}</br>
 				<b>risk_index</b>:${risk_index}</td>
 				<td><input type="button" value="PREPARE PCAP"
-							onclick=callOnClick(${indexClicked.index},"10.0.0.189")></input>
+							onclick=callOnClick(${indexClicked.index},"10.0.0.191")></input>
 							<input type="hidden" value="${indexClicked.index}" name="index"
 							id="index"></input></td>
 							</c:forEach>
 			</tr>
+			<c:if test="${from ne 0 }">
+			<input type="button" value="prev" onclick="callPrev()"></input>
+			</c:if>
 			
+			<input type="button" value="next" onclick="callNext()"></input>
 		</table>
 	</div>
 

@@ -4,23 +4,18 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.net.URL;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Locale;
 
 import javax.annotation.PreDestroy;
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLSession;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
 
-import org.apache.commons.io.FileUtils;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.action.search.SearchType;
-import org.elasticsearch.client.Client;
-import org.elasticsearch.client.transport.TransportClient;
-import org.elasticsearch.common.transport.InetSocketTransportAddress;
-import org.elasticsearch.search.SearchHit;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,7 +30,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.client.RestTemplate;
 
-import com.google.gson.Gson;
+import com.pcap.service.ESService;
+import com.pcap.service.PcapMiningService;
+import com.pcap.util.ConstantsConfig;
 
 /**
  * Handles requests for the application home page.
@@ -47,72 +44,93 @@ public class HomeController {
 	private static HashMap ipApplianceMap=new HashMap();
 	private static ArrayList es_data=new ArrayList();
 	HttpSession session=null;
+	PcapMiningService miningService=new PcapMiningService();
 	static{
 		
-		ipApplianceMap.put("A1B456", "10.0.0.189");
+		ipApplianceMap.put("A1B456", "10.0.0.191");
+		HttpsURLConnection.setDefaultHostnameVerifier(new HostnameVerifier()
+        {
+            public boolean verify(String hostname, SSLSession session)
+            {
+                // ip address of the service URL(like.23.28.244.244)
+                if (hostname.equals(ConstantsConfig.REST_IP))
+                    return true;
+                return false;
+            }
+        });
 	}
+	
+	
+	
+	
 	
 	/**
 	 * Simply selects the home view to render by returning its name.
 	 */
 	@RequestMapping(value = "/", method = RequestMethod.GET)
 	public String home(Locale locale, Model model,HttpServletRequest request,HttpServletResponse response) {
-		es_data=getData();
+		ESService es_service=new ESService();
+		es_data=es_service.getData(request);
+		
+
+		 int from=0;
+		 int to=25;
+		if(request.getParameter("navigate")!=null){
+			String navigate=(String)request.getParameter("navigate");
+			
+			if(navigate.equals("next")){
+				from=Integer.parseInt((String)request.getParameter("to"))+1;
+				to=from+25;
+			}
+		}
 		
 		model.addAttribute("es_data", es_data);
-		 session=request.getSession();
-		if(session.getAttribute("session")==null){
-			session.putValue("session", Math.random());
+		model.addAttribute("records", es_data.size());
+		model.addAttribute("from", from);
+		model.addAttribute("to", to);
+		logger.info("Welcome to homepage and its logger .", locale);
 			response.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-			return "home";
-		}else{
-			return "error";
-		}
 			
-		
-		
-		
+			return "home";
 	}
 	
 	
 
-	
+	/**
+	 * Start the Mining Process + Get The status of mining
+	 * @param request
+	 * @param model		
+	 * @param response
+	 * @return
+	 */
 	@RequestMapping(value = "/pcap", method = RequestMethod.GET)
 	public String getPcapInfo(HttpServletRequest request, Model model,HttpServletResponse response) {
 		try{
-		String ip=request.getParameter("ip");
-		int index=Integer.parseInt(request.getParameter("index"));
-			HttpSession session=request.getSession();
-		RestTemplate rt = new RestTemplate();
-		String uri=new String("http://"+ip+":8080/pcap");
-		ESData pcap=(ESData)es_data.get(index);
 		
+		
+		int index=Integer.parseInt(request.getParameter("index"));
+		
+		//System.out.println("Index is*********** "+);
+		logger.info("Index is*********** ", index);
+		ESData pcap=(ESData)es_data.get(index);
 		PcapParameters pcap_params = new PcapParameters();
 		mapESToPcap(pcap,pcap_params);
-		session.putValue("back", false);
-		
 		model.addAttribute("ip_a",pcap_params.getIp_a());
 		model.addAttribute("flow_time",pcap_params.getFlow_id());
+		model.addAttribute("flow_id",pcap_params.getFlow_id());
 		
-		HttpHeaders headers = new HttpHeaders();
-		headers.setContentType(MediaType.APPLICATION_JSON);
-		headers.set("Accept","application/json");
-		headers.set("Cookie", "session="+session.getAttribute("session"));
+	  if(!checkPrevious(pcap_params.getFlow_id())){
 		
-		
-		//Getting the pcap information
-		HttpEntity headentity = new HttpEntity(pcap_params,headers);
-		ResponseEntity<String> resp=rt.exchange(uri, HttpMethod.POST, headentity, String.class);
-		JSONObject json=new JSONObject(resp.getBody());
+		JSONObject json=miningService.startMining(pcap_params);
 		model.addAttribute("path",json.get("path"));
-		
+		}
+	
 		
 		//Getting the status 
-		HttpEntity statusEntity=new HttpEntity(headers);
-		String uri_status=new String("http://"+ip+":8080/pcap/status");
-		ResponseEntity<String>resp_status=rt.exchange(uri_status, HttpMethod.GET, statusEntity, String.class);
-		JSONObject json_status=new JSONObject(resp_status.getBody());
-		System.out.println(json_status);
+		
+		JSONObject json_status=miningService.getMiningStatus(pcap_params);
+		logger.info("Getting status ***** ", json_status);
+		System.out.println("Getting status *****"+json_status);
 		
 		int percent=(Integer)json_status.get("percentage_complete");
 		model.addAttribute("percent",percent);
@@ -128,9 +146,8 @@ public class HomeController {
 		model.addAttribute("status",json_status.get("status"));
 		
 		//Getting Mining Status
-		String uri_mining=new String("http://"+ip+":8080/pcap/miningStat");
-		ResponseEntity<String>resp_mining=rt.exchange(uri_mining, HttpMethod.POST, headentity, String.class);
-		JSONObject json_mining=new JSONObject(resp_mining.getBody());
+		
+		JSONObject json_mining=miningService.getMiningStats(pcap_params);
 		JSONObject mine=json_mining.getJSONObject("mining_stats");
 		model.addAttribute("pkts_matched",mine.get("pkts_matched"));
 		model.addAttribute("pkts_searched",mine.get("pkts_searched"));
@@ -144,43 +161,71 @@ public class HomeController {
 		return "pcap_status";
 	}
 	
+	private boolean checkPrevious(String flowId){
+		System.out.println("Call to rest service***************");
+		logger.info("Call to rest service ***** ", flowId);
+		RestTemplate rt = new RestTemplate();
+		HttpHeaders headers = new HttpHeaders();
+		headers.setContentType(MediaType.APPLICATION_JSON);
+		headers.set("Accept","application/json");
+		HttpEntity statusEntity=new HttpEntity(headers);
+		String uri_status=new String("http://"+ConstantsConfig.REST_IP+":8080/checkFile/"+flowId);
+		ResponseEntity<Boolean>resp_status=rt.exchange(uri_status, HttpMethod.GET, statusEntity, Boolean.class);
+		System.out.println("************resp *****"+resp_status.getBody());
+		return resp_status.getBody();
+	}
 	
+	/**
+	 * Map the ES Data to the PCAP Parameters 
+	 * @param es_data
+	 * @param pcap_params
+	 */
 	private void  mapESToPcap(ESData es_data,PcapParameters pcap_params){
 		pcap_params.setIp_a(es_data.getIp_a());
 		pcap_params.setIp_b(es_data.getIp_b());
 		pcap_params.setFlow_id(es_data.getFlow_id());
 		pcap_params.setTime_start(es_data.getCreate_time());
 		pcap_params.setTime_end(es_data.getLast_update_time());
+		pcap_params.setPort_a(es_data.getL4_port_a());
+		pcap_params.setPort_b(es_data.getL4_port_b());
+		pcap_params.setService_id(es_data.getService_id());
+		pcap_params.setMask_a("255.255.255.0");//Needs to be calculated 
+		pcap_params.setMask_b("255.255.255.0");
+		pcap_params.setExpression_id("123");
+		
+		
+
 		
 	}
     
 
-	
+	/**
+	 * Open the Processed file 
+	 * @param request
+	 * @param model
+	 * @param response
+	 * @return
+	 */
 	
 	@RequestMapping(value = "/operation", method = RequestMethod.GET)
 	public String getPcapFile(HttpServletRequest request,Model model,HttpServletResponse response){
 		try{
 		
-		String ip="10.0.0.189";
 		
+		String fileName=request.getParameter("flow_id")+".pcap";
 		
+		String fileNameClient=ConstantsConfig.CLIENT_STORE+fileName;
 		
-		File file = new File("/Users/joshia7/Documents/pcap_web/File8.pcap");
-		URL url=new URL("http://"+ip+":8080/pcap/file?fileName=File8.pcap");
-		
-		long start = System.currentTimeMillis();
-        System.out.println("Downloading....");
-        FileUtils.copyURLToFile(url, file);
-        long end = System.currentTimeMillis();
-        System.out.println("Completed....in ms : " + (end - start));
+		miningService.getPcapFile(fileName,fileNameClient);
         
-        InputStream inputStream = new FileInputStream("/Users/joshia7/Documents/pcap_web/File8.pcap");
-        String type=file.toURL().openConnection().guessContentTypeFromName("File8.pcap");
-        
+        InputStream inputStream = new FileInputStream(fileNameClient);
+     
+        System.out.println("File path in controller is  "+fileNameClient);
         
         byte[] reportBytes =new byte[32768];
-        
-		response.setHeader("Content-Disposition", "inline; filename=\"File8.pcap\"");
+        String contentDisposition="inline; filename=\""+fileName+"\"";
+        System.out.println("File path in content disposition is  "+contentDisposition);
+		response.setHeader("Content-Disposition", contentDisposition);
         response.setDateHeader("Expires", -1);
         response.setContentType("application/octet-stream");
 
@@ -190,7 +235,8 @@ public class HomeController {
 		while((read=inputStream.read(reportBytes))!=-1){
 			os.write(reportBytes,0,read);
 		}
-        
+		os.close();
+		inputStream.close();
 
 		}catch(Exception e){
 			e.printStackTrace();
@@ -199,36 +245,7 @@ public class HomeController {
 		return "operation";
 	}
 	
-	private ArrayList getData(){
-		ArrayList es_data=new ArrayList();
-		try{
-			Client client = new TransportClient()
-			        .addTransportAddress(new InetSocketTransportAddress(ConstantsConfig.ES_IP, ConstantsConfig.ES_PORT));
-					SearchResponse response = client.prepareSearch(ConstantsConfig.ES_INDEX)
-					           .setSearchType(SearchType.DFS_QUERY_THEN_FETCH)
-					            .setFrom(0).setSize(10).setExplain(true)
-					            .execute()
-					           .actionGet();
-					
-					if(response.getHits().getHits().length>0){
-						
-						for(SearchHit searchData:response.getHits().getHits()){
-							
-							JSONObject value=new JSONObject(searchData.getSource());
-							
-							Gson gson = new Gson();  
-							ESData es=gson.fromJson(value.toString(),ESData.class);
-							es.setTimeStamp(value.getString("@timestamp"));
-							es_data.add(es);
-						}
-					}
-			
-		}catch(Exception e){
-			e.printStackTrace();
-		}
-		
-		return es_data;
-	}
+	
 	@PreDestroy
 	public void cleanUp() throws Exception {
 		System.out.println("clean up code ");
